@@ -217,6 +217,105 @@ class FeatureFusionBlock_custom(nn.Module):
         output = self.out_conv(output)
         return output
 
+
+class FeatureFusionBlock_custom_own(nn.Module):
+    """Feature fusion block."""
+
+    def __init__(
+        self,
+        features,
+        activation,
+        deconv=False,
+        bn=False,
+        expand=False,
+        align_corners=True,
+        width_ratio=1,
+    ):
+        """Init.
+        Args:
+            features (int): number of features
+        """
+        super(FeatureFusionBlock_custom_own, self).__init__()
+        self.width_ratio = width_ratio
+
+        self.deconv = deconv
+        self.align_corners = align_corners
+
+        self.groups = 1
+
+        self.expand = expand
+        out_features = features
+        if self.expand == True:
+            out_features = features // 2
+
+        # self.downsample = nn.Conv2d(in_channels=features, out_channels=features, kernel_size=3, stride=2, padding=1)
+
+        self.out_conv = nn.Conv2d(
+            features,
+            out_features,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            bias=True,
+            groups=1,
+        )
+
+        self.resConfUnit1 = ResidualConvUnit_custom(features, activation, bn)
+        self.resConfUnit2 = ResidualConvUnit_custom(features, activation, bn)
+
+        self.skip_add = nn.quantized.FloatFunctional()
+
+        # Initialize layers
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        # Initialize convolution layers
+        torch.nn.init.kaiming_normal_(self.out_conv.weight, mode='fan_out', nonlinearity='relu')
+        if self.out_conv.bias is not None:
+            torch.nn.init.constant_(self.out_conv.bias, 0)
+
+        # Initialize residual convolution units (assuming they contain conv layers)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                torch.nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    torch.nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                torch.nn.init.constant_(m.weight, 1)
+                torch.nn.init.constant_(m.bias, 0)
+    
+    def forward(self, *xs):
+        """Forward pass.
+        Returns:
+            tensor: output
+        """
+        output = xs[0]
+
+        if len(xs) == 2:
+            res = self.resConfUnit1(xs[1])
+            if self.width_ratio != 1:
+                res = F.interpolate(res, size=(output.shape[2], output.shape[3]), mode='bilinear')
+
+            output = self.skip_add.add(output, res)
+            # output += res
+
+        output = self.resConfUnit2(output)
+
+        # if self.width_ratio != 1:
+        #     # and output.shape[3] < self.width_ratio * output.shape[2]
+        #     #size=(image.shape[])
+        #     if (output.shape[3] / output.shape[2]) < (2 / 3) * self.width_ratio:
+        #         shape = 3 * output.shape[3]
+        #     else:
+        #         shape = int(self.width_ratio * 2 * output.shape[2])
+        #     output  = F.interpolate(output, size=(2* output.shape[2], shape), mode='bilinear')
+        # else:
+        #     output = nn.functional.interpolate(output, scale_factor=2,
+        #             mode="bilinear", align_corners=self.align_corners)
+        # output = self.downsample(output)
+        output = self.out_conv(output)
+        return output
+
 def make_fusion_block(features, use_bn, width_ratio=1):
     return FeatureFusionBlock_custom(
         features,

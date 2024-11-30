@@ -119,7 +119,7 @@ def main(args):
     model = eval(args.model)
     print('Loading criterion: MaskedMSE(norm_pix_loss={:s})'.format(str(bool(args.norm_pix_loss))))
     criterion = MaskedMSE(norm_pix_loss=bool(args.norm_pix_loss))
-   
+    
     model.to(device)
     model_without_ddp = model
     print("Model = %s" % str(model_without_ddp))
